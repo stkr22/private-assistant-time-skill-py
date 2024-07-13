@@ -1,0 +1,7 @@
+{%- set hour_part = (parameters.timer_hours|string + ' hour' + ('s' if parameters.timer_hours > 1 else '')) if parameters.timer_hours != None else '' %}
+{%- set minute_part = (parameters.timer_minutes|string + ' minute' + ('s' if parameters.timer_minutes > 1 else '')) if parameters.timer_minutes != None else '' %}
+{%- set second_part = (parameters.timer_seconds|string + ' second' + ('s' if parameters.timer_seconds > 1 else '')) if parameters.timer_seconds != None else '' %}
+
+{%- set parts = [hour_part, minute_part, second_part] | select('ne', '') | list -%}
+
+I set a timer for {{ parts|join(' and ') }}.
