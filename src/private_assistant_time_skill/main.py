@@ -8,9 +8,10 @@ import jinja2
 import paho.mqtt.client as mqtt
 import spacy
 import typer
+from private_assistant_commons import skill_config
 from sqlmodel import SQLModel, create_engine
 
-from private_assistant_time_skill import config, time_skill
+from private_assistant_time_skill import time_skill
 
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -24,12 +25,10 @@ app = typer.Typer()
 
 @app.command()
 def start_skill(
-    config_path: Annotated[
-        pathlib.Path, typer.Argument(envvar="PRIVATE_ASSISTANT_CONFIG_PATH")
-    ],
+    config_path: Annotated[pathlib.Path, typer.Argument(envvar="PRIVATE_ASSISTANT_CONFIG_PATH")],
 ):
-    config_obj = config.load_config(config_path)
-    db_engine = create_engine(config_obj.db_connection_string)
+    config_obj = skill_config.load_config(config_path, skill_config.SkillConfig)
+    db_engine = create_engine(skill_config.PostgresConfig.from_env().connection_string)
     SQLModel.metadata.create_all(db_engine)
     time_skill_obj = time_skill.TimeSkill(
         mqtt_client=mqtt.Client(
