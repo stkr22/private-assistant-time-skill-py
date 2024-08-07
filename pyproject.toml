@@ -7,24 +7,20 @@ readme = "README.md"
 license = "GNU GPLv3"
 
 [tool.poetry.dependencies]
-spacy = "^3.7.4"
-typer = {version = "0.9.0", extras = ["all"]}
-pydantic = "^2.7.0"
 python = ">=3.11,<3.12"
+typer = {extras = ["all"], version = "^0.12.3"}
+pydantic = "^2.8.2"
 pyyaml = "^6.0.1"
 jinja2 = "^3.1.3"
-en-core-web-md = {url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl"}
-sqlmodel = "^0.0.16"
+sqlmodel = "^0.0.21"
 psycopg2-binary = "^2.9.9"
-private-assistant-commons = "^0.1.3"
-word2number = "^1.1"
+private-assistant-commons = "^0.1.4"
 
 
 [tool.poetry.group.dev.dependencies]
-ruff = "^0.5.2"
-mypy = "^1.10.1"
-pytest = "^8.2.2"
-types-pyyaml = "^6.0.12.20240311"
+ruff = "^0.5.6"
+mypy = "^1.11.1"
+pytest = "^8.3.2"
 
 [build-system]
 requires = ["poetry-core"]

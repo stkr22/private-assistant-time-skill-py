@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import jinja2
 import paho.mqtt.client as mqtt
 import private_assistant_commons as commons
-import spacy
 import sqlalchemy
+from private_assistant_commons import messages
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -29,17 +29,11 @@ class Parameters(BaseModel):
     def timer_name(self) -> str:
         parts = []
         if self.timer_hours is not None and self.timer_hours > 0:
-            parts.append(
-                f"{self.timer_hours} hour{'s' if self.timer_hours != 1 else ''}"
-            )
+            parts.append(f"{self.timer_hours} hour{'s' if self.timer_hours != 1 else ''}")
         if self.timer_minutes is not None and self.timer_minutes > 0:
-            parts.append(
-                f"{self.timer_minutes} minute{'s' if self.timer_minutes != 1 else ''}"
-            )
+            parts.append(f"{self.timer_minutes} minute{'s' if self.timer_minutes != 1 else ''}")
         if self.timer_seconds is not None and self.timer_seconds > 0:
-            parts.append(
-                f"{self.timer_seconds} second{'s' if self.timer_seconds != 1 else ''}"
-            )
+            parts.append(f"{self.timer_seconds} second{'s' if self.timer_seconds != 1 else ''}")
 
         return " and ".join(parts)
 
@@ -55,14 +49,10 @@ class Action(enum.Enum):
     def find_matching_action(cls, text: str):
         # Remove punctuation from the text
         text = text.translate(str.maketrans("", "", string.punctuation))
-        text_words = set(
-            text.lower().split()
-        )  # Convert text to lowercase and split into words
+        text_words = set(text.lower().split())  # Convert text to lowercase and split into words
 
         for action in cls:
-            if all(
-                word in text_words for word in action.value
-            ):  # Check if all words in the list are in text
+            if all(word in text_words for word in action.value):  # Check if all words in the list are in text
                 return action
         return None
 
@@ -72,11 +62,10 @@ class TimeSkill(commons.BaseSkill):
         self,
         config_obj: commons.SkillConfig,
         mqtt_client: mqtt.Client,
-        nlp_model: spacy.Language,
         db_engine: sqlalchemy.Engine,
         template_env: jinja2.Environment,
     ) -> None:
-        super().__init__(config_obj, mqtt_client, nlp_model)
+        super().__init__(config_obj, mqtt_client)
         self.active_timers: dict[str, threading.Timer] = {}
         self.db_engine = db_engine
         self.action_to_answer: dict[Action, jinja2.Template] = {
@@ -89,26 +78,32 @@ class TimeSkill(commons.BaseSkill):
         self.template_env = template_env
         self.timer_lock: threading.RLock = threading.RLock()
 
-    def calculate_certainty(self, doc: spacy.language.Doc) -> float:
-        for token in doc:
-            if token.lemma_.lower() in ["timer", "time", "alarm"]:
-                return 1.0
+    def calculate_certainty(self, intent_analysis_result: messages.IntentAnalysisResult) -> float:
+        if "timer" in intent_analysis_result.nouns or "alarm" in intent_analysis_result.nouns:
+            return 1.0
         return 0
 
-    def find_parameters(self, action: Action, text: str) -> Parameters:
+    def find_parameters(self, action: Action, intent_analysis_result: messages.IntentAnalysisResult) -> Parameters:
         parameters = Parameters()
         if action == Action.TIMER_SET:
-            found_time_units = tools_time_units.extract_time_units(
-                text=text, nlp_model=self.nlp_model
-            )
-            if found_time_units:
-                parameters.timer_hours = found_time_units["hours"]
-                parameters.timer_minutes = found_time_units["minutes"]
-                parameters.timer_seconds = found_time_units["seconds"]
+            for result in intent_analysis_result.numbers:
+                if result.next_token == "hours":
+                    parameters.timer_hours = result.number_token
+                elif result.next_token == "minutes":
+                    parameters.timer_minutes = result.number_token
+                elif result.next_token == "seconds":
+                    parameters.timer_seconds = result.number_token
         if action == Action.ALARM_SET:
-            parameters.alarm_time = tools_time_units.extract_alarm_units(
-                text=text, nlp_model=self.nlp_model
-            )
+            parameters.alarm_time = datetime.now().replace(hour=6, minute=0, second=0, microsecond=0)
+            for result in intent_analysis_result.numbers:
+                if result.next_token == "o'clock":
+                    parameters.alarm_time = parameters.alarm_time.replace(hour=result.number_token)
+                elif result.next_token == "hours":
+                    parameters.alarm_time = parameters.alarm_time.replace(hour=result.number_token)
+                elif result.next_token == "minutes":
+                    parameters.alarm_time = parameters.alarm_time.replace(minute=result.number_token)
+                elif result.next_token == "seconds":
+                    parameters.alarm_time = parameters.alarm_time.replace(second=result.number_token)
         if action == Action.LIST_TIMERS:
             parameters.timers = self.find_active_timers()
         return parameters
@@ -117,9 +112,7 @@ class TimeSkill(commons.BaseSkill):
         now = datetime.now()
         timers_list: list[dict[str, str | int]] = []
         with Session(self.db_engine) as session:
-            statement = select(models.ActiveTimer).where(
-                models.ActiveTimer.scheduled_time > now
-            )
+            statement = select(models.ActiveTimer).where(models.ActiveTimer.scheduled_time > now)
             timers = session.exec(statement).all()
 
         for i, timer in enumerate(timers, start=1):
@@ -140,17 +133,13 @@ class TimeSkill(commons.BaseSkill):
         )
         return answer
 
-    def publish_triggered_timer(
-        self, parameters: Parameters, client_request: commons.ClientRequest
-    ):
+    def publish_triggered_timer(self, parameters: Parameters, client_request: commons.ClientRequest):
         answer = self.get_answer(action=Action.TIMER_TRIGGERED, parameters=parameters)
         self.add_text_to_output_topic(answer, client_request=client_request)
         with self.timer_lock:
             del self.active_timers[parameters.timer_name]
 
-    def register_timer(
-        self, parameters: Parameters, client_request: commons.ClientRequest
-    ) -> None:
+    def register_timer(self, parameters: Parameters, client_request: commons.ClientRequest) -> None:
         total_diff = timedelta(
             hours=parameters.timer_hours or 0,
             minutes=parameters.timer_minutes or 0,
@@ -174,9 +163,7 @@ class TimeSkill(commons.BaseSkill):
             self.active_timers[parameters.timer_name].daemon = True
             self.active_timers[parameters.timer_name].start()
 
-    def register_alarm(
-        self, parameters: Parameters, client_request: commons.ClientRequest
-    ) -> None:
+    def register_alarm(self, parameters: Parameters, client_request: commons.ClientRequest) -> None:
         active_timer = models.ActiveAlarm(
             output_topic=client_request.output_topic,
             name=parameters.timer_name,
@@ -186,15 +173,15 @@ class TimeSkill(commons.BaseSkill):
             session.add(active_timer)
             session.commit()
 
-    def process_request(self, client_request: commons.ClientRequest) -> None:
-        action = Action.find_matching_action(client_request.text)
+    def process_request(self, intent_analysis_result: messages.IntentAnalysisResult) -> None:
+        action = Action.find_matching_action(intent_analysis_result.client_request.text)
         parameters = None
         if action is not None:
-            parameters = self.find_parameters(action, text=client_request.text)
+            parameters = self.find_parameters(action, intent_analysis_result=intent_analysis_result)
         if parameters is not None and action is not None:
             answer = self.get_answer(action, parameters)
-            self.add_text_to_output_topic(answer, client_request=client_request)
+            self.add_text_to_output_topic(answer, client_request=intent_analysis_result.client_request)
             if action == Action.TIMER_SET:
-                self.register_timer(parameters, client_request=client_request)
+                self.register_timer(parameters, client_request=intent_analysis_result.client_request)
             if action == Action.ALARM_SET:
-                self.register_alarm(parameters, client_request=client_request)
+                self.register_alarm(parameters, client_request=intent_analysis_result.client_request)
