@@ -1,0 +1,12 @@
+# Changes here will be overwritten by Copier
+_commit: 0.1.3
+_src_path: gh:stkr22/copier-python-project
+author_email: sktr22@github.com
+author_full_name: sktr22
+copyright_license: GNU General Public License v3.0
+project_description: 'Time Management Skill for the Private Assistant: Handles timers,
+    time telling, and other time-related functionalities.'
+project_name: Private Assistant Time Skill
+python_package_distribution_name: private-assistant-time-skill
+python_package_import_name: private_assistant_time_skill
+version: 0.1.9

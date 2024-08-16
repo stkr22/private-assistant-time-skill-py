@@ -1,5 +1,4 @@
 import enum
-import logging
 import string
 import threading
 from datetime import datetime, timedelta
@@ -9,12 +8,14 @@ import paho.mqtt.client as mqtt
 import private_assistant_commons as commons
 import sqlalchemy
 from private_assistant_commons import messages
+from private_assistant_commons.skill_logger import SkillLogger
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from private_assistant_time_skill import models, tools_time_units
 
-logger = logging.getLogger(__name__)
+# Configure logging
+logger = SkillLogger.get_logger(__name__)
 
 
 class Parameters(BaseModel):
@@ -47,12 +48,11 @@ class Action(enum.Enum):
 
     @classmethod
     def find_matching_action(cls, text: str):
-        # Remove punctuation from the text
         text = text.translate(str.maketrans("", "", string.punctuation))
-        text_words = set(text.lower().split())  # Convert text to lowercase and split into words
+        text_words = set(text.lower().split())
 
         for action in cls:
-            if all(word in text_words for word in action.value):  # Check if all words in the list are in text
+            if all(word in text_words for word in action.value):
                 return action
         return None
 
@@ -137,7 +137,9 @@ class TimeSkill(commons.BaseSkill):
         answer = self.get_answer(action=Action.TIMER_TRIGGERED, parameters=parameters)
         self.add_text_to_output_topic(answer, client_request=client_request)
         with self.timer_lock:
-            del self.active_timers[parameters.timer_name]
+            if parameters.timer_name in self.active_timers:
+                del self.active_timers[parameters.timer_name]
+                logger.debug(f"Timer '{parameters.timer_name}' removed from active timers.")
 
     def register_timer(self, parameters: Parameters, client_request: commons.ClientRequest) -> None:
         total_diff = timedelta(
@@ -155,6 +157,9 @@ class TimeSkill(commons.BaseSkill):
             session.add(active_timer)
             session.commit()
         with self.timer_lock:
+            if parameters.timer_name in self.active_timers:
+                self.active_timers[parameters.timer_name].cancel()
+                logger.debug(f"Existing timer '{parameters.timer_name}' canceled before registering a new one.")
             self.active_timers[parameters.timer_name] = threading.Timer(
                 total_diff.total_seconds(),
                 function=self.publish_triggered_timer,
@@ -162,6 +167,7 @@ class TimeSkill(commons.BaseSkill):
             )
             self.active_timers[parameters.timer_name].daemon = True
             self.active_timers[parameters.timer_name].start()
+            logger.debug(f"Timer '{parameters.timer_name}' registered and started.")
 
     def register_alarm(self, parameters: Parameters, client_request: commons.ClientRequest) -> None:
         active_timer = models.ActiveAlarm(
@@ -172,16 +178,24 @@ class TimeSkill(commons.BaseSkill):
         with Session(self.db_engine) as session:
             session.add(active_timer)
             session.commit()
+        logger.debug(f"Alarm '{parameters.timer_name}' set for {parameters.alarm_time}.")
 
     def process_request(self, intent_analysis_result: messages.IntentAnalysisResult) -> None:
         action = Action.find_matching_action(intent_analysis_result.client_request.text)
-        parameters = None
-        if action is not None:
-            parameters = self.find_parameters(action, intent_analysis_result=intent_analysis_result)
-        if parameters is not None and action is not None:
+        if action is None:
+            logger.error(f"Unrecognized action in text: {intent_analysis_result.client_request.text}")
+            return
+
+        parameters = self.find_parameters(action, intent_analysis_result=intent_analysis_result)
+        if parameters is not None:
             answer = self.get_answer(action, parameters)
             self.add_text_to_output_topic(answer, client_request=intent_analysis_result.client_request)
+
             if action == Action.TIMER_SET:
                 self.register_timer(parameters, client_request=intent_analysis_result.client_request)
-            if action == Action.ALARM_SET:
+            elif action == Action.ALARM_SET:
                 self.register_alarm(parameters, client_request=intent_analysis_result.client_request)
+            else:
+                logger.debug(f"No additional action required for action: {action}")
+        else:
+            logger.error("No parameters found for the action.")
