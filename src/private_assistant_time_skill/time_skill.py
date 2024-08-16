@@ -135,7 +135,7 @@ class TimeSkill(commons.BaseSkill):
 
     def publish_triggered_timer(self, parameters: Parameters, client_request: commons.ClientRequest):
         answer = self.get_answer(action=Action.TIMER_TRIGGERED, parameters=parameters)
-        self.add_text_to_output_topic(answer, client_request=client_request)
+        self.broadcast_text(answer)
         with self.timer_lock:
             if parameters.timer_name in self.active_timers:
                 del self.active_timers[parameters.timer_name]
