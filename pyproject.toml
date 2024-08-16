@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "private-assistant-time-skill"
-version = "0.1.10"
+version = "0.1.11"
 description = "Time Management Skill for the Private Assistant: Handles timers, time telling, and other time-related functionalities."
 authors = ["stkr22 <stkr22@github.com>"]
 readme = "README.md"
