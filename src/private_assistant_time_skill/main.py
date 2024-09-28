@@ -5,7 +5,6 @@ import jinja2
 import paho.mqtt.client as mqtt
 import typer
 from private_assistant_commons import skill_config
-from sqlmodel import SQLModel, create_engine
 
 from private_assistant_time_skill import time_skill
 
@@ -17,8 +16,6 @@ def start_skill(
     config_path: Annotated[pathlib.Path, typer.Argument(envvar="PRIVATE_ASSISTANT_CONFIG_PATH")],
 ):
     config_obj = skill_config.load_config(config_path, skill_config.SkillConfig)
-    db_engine = create_engine(skill_config.PostgresConfig.from_env().connection_string)
-    SQLModel.metadata.create_all(db_engine)
     time_skill_obj = time_skill.TimeSkill(
         mqtt_client=mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
@@ -32,7 +29,6 @@ def start_skill(
                 "templates",
             ),
         ),
-        db_engine=db_engine,
     )
     time_skill_obj.run()
 

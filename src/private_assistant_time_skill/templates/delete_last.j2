@@ -1,0 +1,5 @@
+{% if parameters.is_deleted -%}
+The last created timer for {{ parameters.duration_name }} has been deleted.
+{%- else -%}
+No active timer to delete.
+{%- endif %}
