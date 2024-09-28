@@ -1,8 +1,8 @@
 {% set count = parameters.timers | length -%}
 {% if count == 0 -%}
-I have no active timers.
+There are no active timers.
 {% else -%}
-I have {{ count }} active timer{{ 's' if count > 1 else '' }}.
+There are {{ count }} active timer{{ 's' if count > 1 else '' }}.
 {% for timer in parameters.timers -%}
 Timer {{ timer.id }} will be due in {{ timer.time_left }}.
 {% endfor -%}
