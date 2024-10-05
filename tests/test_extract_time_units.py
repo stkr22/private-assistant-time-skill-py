@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import pytest
+
 from private_assistant_time_skill.tools_time_units import (
     format_time_difference,
 )
