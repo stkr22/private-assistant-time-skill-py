@@ -1,19 +1,17 @@
+import asyncio
 import enum
+import logging
 import string
-import threading
 from datetime import datetime, timedelta
+from typing import Self
 
+import aiomqtt
 import jinja2
-import paho.mqtt.client as mqtt
 import private_assistant_commons as commons
 from private_assistant_commons import messages
-from private_assistant_commons.skill_logger import SkillLogger
 from pydantic import BaseModel
 
 from private_assistant_time_skill.tools_time_units import format_time_difference
-
-# Configure logging
-logger = SkillLogger.get_logger(__name__)
 
 
 class Parameters(BaseModel):
@@ -43,7 +41,7 @@ class Action(enum.Enum):
     DELETE_LAST = ["delete", "last"]
 
     @classmethod
-    def find_matching_action(cls, text: str):
+    def find_matching_action(cls, text: str) -> Self | None:
         text = text.translate(str.maketrans("", "", string.punctuation))
         text_words = set(text.lower().split())
 
@@ -57,10 +55,12 @@ class TimeSkill(commons.BaseSkill):
     def __init__(
         self,
         config_obj: commons.SkillConfig,
-        mqtt_client: mqtt.Client,
+        mqtt_client: aiomqtt.Client,
         template_env: jinja2.Environment,
+        task_group: asyncio.TaskGroup,
+        logger: logging.Logger,
     ) -> None:
-        super().__init__(config_obj, mqtt_client)
+        super().__init__(config_obj, mqtt_client, task_group, logger=logger)
         self.active_timers: dict[str, dict] = {}
         self.last_created_timer_name: str | None = None
         self.action_to_answer: dict[Action, jinja2.Template] = {
@@ -74,11 +74,13 @@ class TimeSkill(commons.BaseSkill):
             "triggered": template_env.get_template("triggered.j2"),
         }
         self.template_env = template_env
-        self.timer_lock: threading.RLock = threading.RLock()
 
-    def calculate_certainty(self, intent_analysis_result: messages.IntentAnalysisResult) -> float:
+    async def calculate_certainty(self, intent_analysis_result: messages.IntentAnalysisResult) -> float:
+        """Calculate how confident the skill is about handling the given request."""
         if "timer" in intent_analysis_result.nouns:
-            return 1.0
+            self.logger.debug("Timer noun detected, certainty set to 1.0.")
+            return 1.0  # Maximum certainty if "timer" is detected in the user's request
+        self.logger.debug("No timer noun detected, certainty set to 0.0.")
         return 0.0
 
     def find_parameters(self, action: Action, intent_analysis_result: messages.IntentAnalysisResult) -> Parameters:
@@ -107,70 +109,73 @@ class TimeSkill(commons.BaseSkill):
         )
         duration_name = parameters.duration_name
         if not duration_name:
-            logger.error("No valid timer duration provided.")
+            self.logger.error("No valid timer duration provided.")
             return
 
-        with self.timer_lock:
-            if duration_name in self.active_timers:
-                self.active_timers[duration_name]["timer"].cancel()
-                logger.debug("Existing timer '%s' canceled before registering a new one.", duration_name)
+        # Cancel any existing timer for the same duration and remove it from active_timers
+        if duration_name in self.active_timers:
+            self.active_timers[duration_name]["task"].cancel()
+            # The done callback will handle removing it from active_timers
+            self.logger.debug("Existing timer '%s' canceled before registering a new one.", duration_name)
 
-            new_timer = threading.Timer(
-                total_diff.total_seconds(),
-                function=self.publish_triggered_timer,
-                kwargs={"parameters": parameters},
-            )
-            new_timer.daemon = True
-            new_timer.start()
-            self.active_timers[duration_name] = {
-                "timer": new_timer,
-                "start_time": datetime.now(),
-                "total_duration": total_diff,
-            }
-            self.last_created_timer_name = duration_name
-            logger.debug("Timer '%s' registered and started.", duration_name)
+        # Create a new async task for the timer
+        task = self.add_task(self._timer_task(total_diff, parameters))
+        # Attach a callback to ensure the timer is removed from active_timers when it completes
+        task.add_done_callback(lambda t: self.cleanup_timer(duration_name))
+        self.active_timers[duration_name] = {
+            "task": task,
+            "start_time": datetime.now(),
+            "total_duration": total_diff,
+        }
+        self.last_created_timer_name = duration_name
+        self.logger.debug("Timer '%s' registered and started.", duration_name)
 
-    def publish_triggered_timer(self, parameters: Parameters):
+    async def _timer_task(self, total_diff: timedelta, parameters: Parameters) -> None:
+        await asyncio.sleep(total_diff.total_seconds())
+        await self.publish_triggered_timer(parameters)
+
+    async def publish_triggered_timer(self, parameters: Parameters) -> None:
         # Use the triggered template from the non-action templates
         template = self.non_action_templates["triggered"]
         answer = template.render(parameters=parameters)
-        self.broadcast_text(answer)
-        with self.timer_lock:
-            if parameters.duration_name in self.active_timers:
-                del self.active_timers[parameters.duration_name]
-                logger.debug("Timer '%s' removed from active timers.", parameters.duration_name)
+        await self.broadcast_text(answer)
+        # Cleanup is already handled by the task's done callback
+
+    def cleanup_timer(self, duration_name: str) -> None:
+        """Remove a timer from active_timers once it completes or is canceled."""
+        if duration_name in self.active_timers:
+            del self.active_timers[duration_name]
+            self.logger.info("Timer '%s' cleaned up from active timers.", duration_name)
 
     def find_active_timers(self) -> list[dict]:
         """Find all currently active timers with remaining time."""
-        with self.timer_lock:
-            active_timers_info = []
-            for timer_name, timer_data in self.active_timers.items():
-                total_duration = timer_data["total_duration"]
-                start_time = timer_data["start_time"]
-                time_passed = datetime.now() - start_time
-                time_left = total_duration - time_passed
+        active_timers_info = []
+        for timer_name, timer_data in self.active_timers.items():
+            total_duration = timer_data["total_duration"]
+            start_time = timer_data["start_time"]
+            time_passed = datetime.now() - start_time
+            time_left = total_duration - time_passed
 
-                if time_left.total_seconds() > 0:
-                    active_timers_info.append({"id": timer_name, "time_left": format_time_difference(time_left)})
+            if time_left.total_seconds() > 0:
+                active_timers_info.append({"id": timer_name, "time_left": format_time_difference(time_left)})
 
-            return active_timers_info
+        return active_timers_info
 
     def delete_last_timer(self, parameters: Parameters) -> None:
-        with self.timer_lock:
-            if self.last_created_timer_name and self.last_created_timer_name in self.active_timers:
-                self.active_timers[self.last_created_timer_name]["timer"].cancel()
-                del self.active_timers[self.last_created_timer_name]
-                logger.debug("Last created timer '%s' deleted.", self.last_created_timer_name)
-                self.last_created_timer_name = None
-                parameters.is_deleted = True
-            else:
-                logger.debug("No active timer to delete.")
-                parameters.is_deleted = False
+        if self.last_created_timer_name and self.last_created_timer_name in self.active_timers:
+            self.active_timers[self.last_created_timer_name]["task"].cancel()
+            # The done callback will handle removing it from active_timers
+            self.logger.debug("Last created timer '%s' deleted.", self.last_created_timer_name)
+            self.last_created_timer_name = None
+            parameters.is_deleted = True
+        else:
+            self.logger.debug("No active timer to delete.")
+            parameters.is_deleted = False
 
-    def process_request(self, intent_analysis_result: messages.IntentAnalysisResult) -> None:
+    async def process_request(self, intent_analysis_result: messages.IntentAnalysisResult) -> None:
         action = Action.find_matching_action(intent_analysis_result.client_request.text)
         if action is None:
-            logger.error("Unrecognized action in text: %s", intent_analysis_result.client_request.text)
+            self.logger.error("Unrecognized action in text: %s", intent_analysis_result.client_request.text)
             return
 
         parameters = self.find_parameters(action, intent_analysis_result=intent_analysis_result)
@@ -184,7 +189,8 @@ class TimeSkill(commons.BaseSkill):
         elif action == Action.DELETE_LAST:
             self.delete_last_timer(parameters)
         else:
-            logger.debug("No specific action implemented for action: %s", action)
+            self.logger.debug("No specific action implemented for action: %s", action)
             return
+
         answer = self.get_answer(action, parameters)
-        self.add_text_to_output_topic(answer, client_request=intent_analysis_result.client_request)
+        self.add_task(self.add_text_to_output_topic(answer, client_request=intent_analysis_result.client_request))
