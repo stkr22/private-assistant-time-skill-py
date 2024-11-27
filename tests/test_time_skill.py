@@ -114,11 +114,11 @@ class TestTimeSkill(unittest.IsolatedAsyncioTestCase):
     async def test_publish_triggered_timer(self):
         # Mock parameters and setup a triggered timer
         parameters = Parameters(hours=0, minutes=5, seconds=0)
-        with patch.object(self.skill, "broadcast_text") as mock_broadcast_text:
+        with patch.object(self.skill, "publish_triggered_timer") as mock_publish_triggered_timer:
             await self.skill.publish_triggered_timer(parameters)
 
-            # Verify that the broadcast_text was called with rendered output
-            mock_broadcast_text.assert_called_once()
+            # Verify that the publish_triggered_timer was called with rendered output
+            mock_publish_triggered_timer.assert_called_once()
 
     async def test_cleanup_timer(self):
         # Mock parameters and client request to register a timer

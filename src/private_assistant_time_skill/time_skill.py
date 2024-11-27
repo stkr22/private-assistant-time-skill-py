@@ -138,7 +138,7 @@ class TimeSkill(commons.BaseSkill):
         # Use the triggered template from the non-action templates
         template = self.non_action_templates["triggered"]
         answer = template.render(parameters=parameters)
-        await self.broadcast_text(answer)
+        await self.publish_with_alert(answer, broadcast=True)
         # Cleanup is already handled by the task's done callback
 
     def cleanup_timer(self, duration_name: str) -> None:
@@ -193,4 +193,4 @@ class TimeSkill(commons.BaseSkill):
             return
 
         answer = self.get_answer(action, parameters)
-        self.add_task(self.add_text_to_output_topic(answer, client_request=intent_analysis_result.client_request))
+        self.add_task(self.send_response(answer, client_request=intent_analysis_result.client_request))
