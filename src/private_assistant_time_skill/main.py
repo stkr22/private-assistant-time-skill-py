@@ -4,7 +4,7 @@ from typing import Annotated
 
 import jinja2
 import typer
-from private_assistant_commons import async_typer, mqtt_connection_handler, skill_config, skill_logger
+from private_assistant_commons import mqtt_connection_handler, skill_config, skill_logger
 
 from private_assistant_time_skill import time_skill
 
