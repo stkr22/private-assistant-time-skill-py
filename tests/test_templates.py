@@ -94,11 +94,11 @@ def test_delete_last_template(jinja_env, parameters, expected_output):
     [
         (
             Parameters(hours=0, minutes=10, seconds=0),
-            "Alert, Alert! The timer 10 minutes is due. Alert, Alert!",
+            "The timer 10 minutes is due.",
         ),
         (
             Parameters(hours=1),
-            "Alert, Alert! The timer 1 hour is due. Alert, Alert!",
+            "The timer 1 hour is due.",
         ),
     ],
 )

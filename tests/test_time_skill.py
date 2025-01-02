@@ -30,16 +30,16 @@ class TestTimeSkill(unittest.IsolatedAsyncioTestCase):
             task_group=self.mock_task_group,
             logger=Mock(),
         )
+        await self.skill.skill_preparations()
 
     async def test_register_timer(self):
         # Mock client request and parameters
-        mock_client_request = Mock()
         parameters = Parameters(hours=1, minutes=30, seconds=0)
 
         # Call the register_timer method
         with patch.object(self.skill, "add_task") as mock_create_task:
             mock_create_task.return_value = Mock(spec=asyncio.Task)
-            self.skill.register_timer(parameters, mock_client_request)
+            self.skill.register_timer(parameters)
 
             # Verify that a new async task was created
             mock_create_task.assert_called_once()
@@ -51,12 +51,11 @@ class TestTimeSkill(unittest.IsolatedAsyncioTestCase):
     async def test_delete_last_timer(self):
         # Mock parameters for creating and deleting a timer
         parameters = Parameters(hours=1, minutes=30, seconds=0)
-        mock_client_request = Mock()
 
         # Register a timer first
         with patch.object(self.skill, "add_task") as mock_create_task:
             mock_create_task.return_value = Mock(spec=asyncio.Task)
-            self.skill.register_timer(parameters, mock_client_request)
+            self.skill.register_timer(parameters)
 
             # Verify the timer was registered
             self.assertTrue(self.skill.active_timers)
@@ -71,13 +70,12 @@ class TestTimeSkill(unittest.IsolatedAsyncioTestCase):
         # Mock parameters and client request to register timers
         parameters_1 = Parameters(hours=0, minutes=5, seconds=0)
         parameters_2 = Parameters(hours=0, minutes=10, seconds=0)
-        mock_client_request = Mock()
 
         # Register two timers
         with patch.object(self.skill, "add_task") as mock_create_task:
             mock_create_task.return_value = Mock(spec=asyncio.Task)
-            self.skill.register_timer(parameters_1, mock_client_request)
-            self.skill.register_timer(parameters_2, mock_client_request)
+            self.skill.register_timer(parameters_1)
+            self.skill.register_timer(parameters_2)
 
         # Call find_active_timers method
         result = self.skill.find_active_timers()
@@ -123,7 +121,6 @@ class TestTimeSkill(unittest.IsolatedAsyncioTestCase):
     async def test_cleanup_timer(self):
         # Mock parameters and client request to register a timer
         parameters = Parameters(hours=0, minutes=5, seconds=0)
-        mock_client_request = Mock()
 
         # Mock the task creation to ensure add_done_callback can be verified
         with patch.object(self.skill, "add_task") as mock_create_task:
@@ -133,7 +130,7 @@ class TestTimeSkill(unittest.IsolatedAsyncioTestCase):
             mock_create_task.return_value = mock_task
 
             # Register a timer
-            self.skill.register_timer(parameters, mock_client_request)
+            self.skill.register_timer(parameters)
 
             # Verify that add_done_callback was called to attach the cleanup method
             mock_task.add_done_callback.assert_called_once()
