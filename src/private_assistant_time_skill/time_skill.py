@@ -62,18 +62,24 @@ class TimeSkill(commons.BaseSkill):
     ) -> None:
         super().__init__(config_obj, mqtt_client, task_group, logger=logger)
         self.active_timers: dict[str, dict] = {}
+        self.template_env = template_env
         self.last_created_timer_name: str | None = None
-        self.action_to_answer: dict[Action, jinja2.Template] = {
-            Action.HELP: template_env.get_template("help.j2"),
-            Action.SET: template_env.get_template("set.j2"),
-            Action.LIST: template_env.get_template("list.j2"),
-            Action.DELETE_LAST: template_env.get_template("delete_last.j2"),
-        }
+        self.action_to_template: dict[Action, jinja2.Template] = {}
         # Adding a separate template dictionary for non-action-related operations
         self.non_action_templates: dict[str, jinja2.Template] = {
             "triggered": template_env.get_template("triggered.j2"),
         }
-        self.template_env = template_env
+
+    def _load_templates(self) -> None:
+        try:
+            for action in Action:
+                self.action_to_template[action] = self.template_env.get_template(f"{action.name.lower()}.j2")
+            self.logger.debug("Templates loaded successfully")
+        except jinja2.TemplateNotFound as e:
+            self.logger.error("Failed to load template: %s", e)
+
+    async def skill_preparations(self) -> None:
+        self._load_templates()
 
     async def calculate_certainty(self, intent_analysis_result: messages.IntentAnalysisResult) -> float:
         """Calculate how confident the skill is about handling the given request."""
@@ -98,10 +104,10 @@ class TimeSkill(commons.BaseSkill):
         return parameters
 
     def get_answer(self, action: Action, parameters: Parameters) -> str:
-        template = self.action_to_answer[action]
+        template = self.action_to_template[action]
         return template.render(parameters=parameters)
 
-    def register_timer(self, parameters: Parameters, client_request: commons.ClientRequest) -> None:
+    def register_timer(self, parameters: Parameters) -> None:
         total_diff = timedelta(
             hours=parameters.hours or 0,
             minutes=parameters.minutes or 0,
@@ -121,7 +127,7 @@ class TimeSkill(commons.BaseSkill):
         # Create a new async task for the timer
         task = self.add_task(self._timer_task(total_diff, parameters))
         # Attach a callback to ensure the timer is removed from active_timers when it completes
-        task.add_done_callback(lambda t: self.cleanup_timer(duration_name))
+        task.add_done_callback(lambda _: self.cleanup_timer(duration_name))
         self.active_timers[duration_name] = {
             "task": task,
             "start_time": datetime.now(),
@@ -181,10 +187,8 @@ class TimeSkill(commons.BaseSkill):
         parameters = self.find_parameters(action, intent_analysis_result=intent_analysis_result)
 
         if action == Action.SET:
-            self.register_timer(parameters, client_request=intent_analysis_result.client_request)
-        elif action == Action.HELP:
-            pass
-        elif action == Action.LIST:
+            self.register_timer(parameters)
+        elif action == Action.HELP or action == Action.LIST:
             pass
         elif action == Action.DELETE_LAST:
             self.delete_last_timer(parameters)
