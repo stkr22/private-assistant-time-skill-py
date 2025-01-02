@@ -8,6 +8,7 @@ from typing import Self
 import aiomqtt
 import jinja2
 import private_assistant_commons as commons
+from num2words import num2words
 from private_assistant_commons import messages
 from pydantic import BaseModel
 
@@ -20,6 +21,8 @@ class Parameters(BaseModel):
     seconds: int | None = None
     is_deleted: bool | None = None
     timers: list[dict[str, str | int]] = []
+    current_time: str | None = None
+    humanized_time: str | None = None
 
     @property
     def duration_name(self) -> str:
@@ -39,6 +42,7 @@ class Action(enum.Enum):
     SET = ["set"]
     LIST = ["list"]
     DELETE_LAST = ["delete", "last"]
+    CURRENT_TIME = ["whats", "time"]
 
     @classmethod
     def find_matching_action(cls, text: str) -> Self | None:
@@ -83,9 +87,10 @@ class TimeSkill(commons.BaseSkill):
 
     async def calculate_certainty(self, intent_analysis_result: messages.IntentAnalysisResult) -> float:
         """Calculate how confident the skill is about handling the given request."""
-        if "timer" in intent_analysis_result.nouns:
+        keywords = ["timer", "timers", "time"]
+        if any(noun in keywords for noun in intent_analysis_result.nouns):
             self.logger.debug("Timer noun detected, certainty set to 1.0.")
-            return 1.0  # Maximum certainty if "timer" is detected in the user's request
+            return 1.0
         self.logger.debug("No timer noun detected, certainty set to 0.0.")
         return 0.0
 
@@ -186,7 +191,12 @@ class TimeSkill(commons.BaseSkill):
 
         parameters = self.find_parameters(action, intent_analysis_result=intent_analysis_result)
 
-        if action == Action.SET:
+        if action == Action.CURRENT_TIME:
+            now = datetime.now()
+            hour = num2words(now.hour)
+            minute = num2words(now.minute) if now.minute != 0 else "o'clock"
+            parameters.humanized_time = f"{hour} {minute}"
+        elif action == Action.SET:
             self.register_timer(parameters)
         elif action == Action.HELP or action == Action.LIST:
             pass
