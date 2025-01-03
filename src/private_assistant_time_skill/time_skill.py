@@ -8,11 +8,10 @@ from typing import Self
 import aiomqtt
 import jinja2
 import private_assistant_commons as commons
-from num2words import num2words
 from private_assistant_commons import messages
 from pydantic import BaseModel
 
-from private_assistant_time_skill.tools_time_units import format_time_difference
+from private_assistant_time_skill.tools_time_units import format_time_difference, format_time_for_tts
 
 
 class Parameters(BaseModel):
@@ -21,8 +20,7 @@ class Parameters(BaseModel):
     seconds: int | None = None
     is_deleted: bool | None = None
     timers: list[dict[str, str | int]] = []
-    current_time: str | None = None
-    humanized_time: str | None = None
+    current_time: datetime | None = None
 
     @property
     def duration_name(self) -> str:
@@ -35,6 +33,9 @@ class Parameters(BaseModel):
             parts.append(f"{self.seconds} second{'s' if self.seconds != 1 else ''}")
 
         return " and ".join(parts)
+
+    def format_time(self, with_date: bool = False) -> str:
+        return format_time_for_tts(self.current_time, with_date) if self.current_time else ""
 
 
 class Action(enum.Enum):
@@ -192,10 +193,7 @@ class TimeSkill(commons.BaseSkill):
         parameters = self.find_parameters(action, intent_analysis_result=intent_analysis_result)
 
         if action == Action.CURRENT_TIME:
-            now = datetime.now()
-            hour = num2words(now.hour)
-            minute = num2words(now.minute) if now.minute != 0 else "o'clock"
-            parameters.humanized_time = f"{hour} {minute}"
+            parameters.current_time = datetime.now()
         elif action == Action.SET:
             self.register_timer(parameters)
         elif action == Action.HELP or action == Action.LIST:
