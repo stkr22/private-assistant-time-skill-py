@@ -1,1 +1,1 @@
-"""Time Management Skill for the Private Assistant: Handles timers, time telling, and other time-related functionalities."""
+"""Time Management Skill: Handles timers, time telling, and other time-related functionalities."""

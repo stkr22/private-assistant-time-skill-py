@@ -39,11 +39,11 @@ class Parameters(BaseModel):
 
 
 class Action(enum.Enum):
-    HELP = ["help"]
-    SET = ["set"]
-    LIST = ["list"]
-    DELETE_LAST = ["delete", "last"]
-    CURRENT_TIME = ["whats", "time"]
+    HELP = ["help"]  # noqa: RUF012
+    SET = ["set"]  # noqa: RUF012
+    LIST = ["list"]  # noqa: RUF012
+    DELETE_LAST = ["delete", "last"]  # noqa: RUF012
+    CURRENT_TIME = ["whats", "time"]  # noqa: RUF012
 
     @classmethod
     def find_matching_action(cls, text: str) -> Self | None:
@@ -196,7 +196,7 @@ class TimeSkill(commons.BaseSkill):
             parameters.current_time = datetime.now()
         elif action == Action.SET:
             self.register_timer(parameters)
-        elif action == Action.HELP or action == Action.LIST:
+        elif action in (Action.HELP, Action.LIST):
             pass
         elif action == Action.DELETE_LAST:
             self.delete_last_timer(parameters)
