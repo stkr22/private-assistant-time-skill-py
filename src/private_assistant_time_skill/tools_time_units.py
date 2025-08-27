@@ -18,10 +18,11 @@ def format_time_difference(time_diff: timedelta) -> str:
 def format_time_for_tts(time: datetime, with_date: bool = False) -> str:
     hour = time.hour
     minute = time.minute
+    minute_threshold = 10
 
     if minute == 0:
         time_str = f"{hour} o'clock"
-    elif minute < 10:
+    elif minute < minute_threshold:
         time_str = f"{minute} past {hour}"
     else:
         time_str = f"{minute} past {hour}"
