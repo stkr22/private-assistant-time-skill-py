@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "private-assistant-time-skill"
-version = "1.2.1"
+version = "1.2.2"
 description = "Time Management Skill for the Private Assistant: Handles timers, time telling, and other time-related functionalities."
 authors = [
     { name = "sktr22", email = "sktr22@github.com" }
